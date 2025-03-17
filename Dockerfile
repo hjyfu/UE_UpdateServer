@@ -24,7 +24,7 @@ RUN mkdir -p /app/uploads /app/logs
 COPY --from=builder /app/hotupdate /app/
 # 复制静态文件和模板
 COPY --from=builder /app/app/views /app/app/views
-COPY --from=builder /app/app/static /app/app/static
+#COPY --from=builder /app/app/static /app/app/static
 # 复制配置文件
 COPY --from=builder /app/config.json /app/
 
