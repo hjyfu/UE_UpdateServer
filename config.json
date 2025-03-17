@@ -1,0 +1,20 @@
+{
+  "server": {
+    "port": 9090,
+    "host": "0.0.0.0",
+    "debugMode": true
+  },
+  "storage": {
+    "uploadDir": "./uploads",
+    "logDir": "./logs"
+  },
+  "version": {
+    "initialVersion": "1.0.0",
+    "initialVersionName": "初始版本",
+    "initialVersionDescription": "系统初始版本"
+  },
+  "security": {
+    "adminUsername": "admin",
+    "adminPassword": "admin123"
+  }
+} 

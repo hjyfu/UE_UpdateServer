@@ -213,7 +213,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <form id="new-app-form">
+                    <form id="new-app-form" enctype="multipart/form-data">
                         <div class="mb-3">
                             <label for="app_id" class="form-label">应用ID</label>
                             <input type="text" class="form-control" id="app_id" name="id" placeholder="例如：my-app" required>
@@ -226,6 +226,11 @@
                         <div class="mb-3">
                             <label for="app_description" class="form-label">应用描述</label>
                             <textarea class="form-control" id="app_description" name="description" rows="3" placeholder="应用功能简介"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="initial_file" class="form-label">初始版本包（ZIP文件）</label>
+                            <input type="file" class="form-control" id="initial_file" name="initial_file" accept=".zip" required>
+                            <div class="form-text">初始版本号将设为1.0.0</div>
                         </div>
                     </form>
                 </div>
@@ -535,24 +540,21 @@
                 return;
             }
             
+            // 验证文件
+            const file = formData.get('initial_file');
+            if (!file || file.size === 0) {
+                showMessage('错误', '请上传初始版本ZIP文件');
+                return;
+            }
+            
             // 禁用按钮
             const submitBtn = document.getElementById('create-app-btn');
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> 正在创建...';
             
-            // 构建应用数据
-            const appData = {
-                id: formData.get('id'),
-                name: formData.get('name'),
-                description: formData.get('description')
-            };
-            
             fetch('/api/apps', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(appData)
+                body: formData
             })
             .then(response => response.json())
             .then(data => {

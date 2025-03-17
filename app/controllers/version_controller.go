@@ -19,12 +19,23 @@ import (
 var (
 	UploadDir    string
 	AppsJsonPath string
+	isReady      = false // 服务就绪标志
 )
 
 // SetupVersionController 设置版本控制器
 func SetupVersionController(r *gin.Engine, uploadDirectory string) {
 	UploadDir = uploadDirectory
 	AppsJsonPath = filepath.Join(UploadDir, "apps.json")
+
+	// 健康检查API
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"ready":   isReady,
+			"version": "1.0.0",
+			"time":    time.Now().Format(time.RFC3339),
+		})
+	})
 
 	// 应用管理API
 	r.POST("/api/apps", CreateApp)
@@ -58,8 +69,12 @@ func SetupVersionController(r *gin.Engine, uploadDirectory string) {
 		DownloadFile(c)
 	})
 
-	// 初始化应用目录
-	initApps()
+	// 初始化应用列表，确保至少有一个默认应用
+	go func() {
+		initApps()
+		isReady = true
+		log.Println("热更新服务器初始化完成，所有API已就绪")
+	}()
 }
 
 // 初始化应用列表，确保至少有一个默认应用
@@ -97,32 +112,60 @@ func initApps() {
 		// 创建初始版本
 		createInitialVersionForApp("default")
 	}
+
+	// 初始化完成后标记服务就绪
+	log.Println("应用初始化完成")
 }
 
 // CreateApp 创建新应用
 func CreateApp(c *gin.Context) {
-	var app models.App
-	if err := c.ShouldBindJSON(&app); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求数据"})
+	// 改为解析multipart表单
+	err := c.Request.ParseMultipartForm(32 << 20) // 32MB
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无法解析表单"})
 		return
 	}
 
+	// 获取表单数据
+	appID := c.PostForm("id")
+	name := c.PostForm("name")
+	description := c.PostForm("description")
+
 	// 验证应用ID
-	if app.ID == "" {
+	if appID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "应用ID不能为空"})
 		return
 	}
 
 	// 不允许使用保留的ID
-	if app.ID == "apps" || app.ID == "api" || app.ID == "admin" || app.ID == "static" {
+	if appID == "apps" || appID == "api" || appID == "admin" || appID == "static" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "应用ID不能使用保留字"})
+		return
+	}
+
+	// 检查是否有初始版本文件上传
+	file, header, err := c.Request.FormFile("initial_file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "需要上传初始版本文件"})
+		return
+	}
+	defer file.Close()
+
+	// 检查文件类型
+	if !strings.HasSuffix(header.Filename, ".zip") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "只接受ZIP文件"})
 		return
 	}
 
 	// 设置创建时间和更新时间
 	now := time.Now()
-	app.CreatedAt = now
-	app.UpdatedAt = now
+	app := models.App{
+		ID:          appID,
+		Name:        name,
+		Description: description,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
 
 	// 加载应用列表
 	appList, err := models.LoadApps(AppsJsonPath)
@@ -152,11 +195,66 @@ func CreateApp(c *gin.Context) {
 		return
 	}
 
-	// 创建初始版本
-	createInitialVersionForApp(app.ID)
+	// 创建初始版本目录
+	versionId := "1.0.0"
+	appDir := models.GetAppUploadDir(UploadDir, app.ID)
+	versionDir := filepath.Join(appDir, "versions", versionId)
+	if err := os.MkdirAll(versionDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法创建版本目录"})
+		return
+	}
 
-	log.Printf("已创建新应用: %s", app.ID)
-	c.JSON(http.StatusOK, gin.H{"message": "应用创建成功", "app": app})
+	// 保存上传的文件
+	zipPath := filepath.Join(versionDir, "update.zip")
+	out, err := os.Create(zipPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法创建初始版本文件"})
+		return
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法保存初始版本文件"})
+		return
+	}
+
+	// 获取文件信息
+	fileInfo, err := os.Stat(zipPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "无法获取文件信息"})
+		return
+	}
+
+	// 创建初始版本信息
+	initialVersion := models.Version{
+		ID:          versionId,
+		Name:        "初始版本",
+		Description: "系统初始版本",
+		FilePath:    filepath.Join("versions", versionId, "update.zip"),
+		FileSize:    fileInfo.Size(),
+		CreatedAt:   now,
+		Force:       false,
+	}
+
+	versionList := &models.VersionList{
+		Versions:      []models.Version{initialVersion},
+		LatestVersion: versionId,
+	}
+
+	// 保存版本信息
+	versionJsonPath := models.GetAppVersionsJsonPath(UploadDir, app.ID)
+	if err := models.SaveVersions(versionList, versionJsonPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存版本信息失败"})
+		return
+	}
+
+	log.Printf("已创建新应用: %s，并上传初始版本文件", app.ID)
+	c.JSON(http.StatusOK, gin.H{
+		"message":        "应用创建成功",
+		"app":            app,
+		"initialVersion": initialVersion,
+	})
 }
 
 // ListApps 列出所有应用
@@ -244,7 +342,7 @@ func DeleteApp(c *gin.Context) {
 
 // 为应用创建初始版本
 func createInitialVersionForApp(appID string) {
-	log.Printf("为应用 %s 创建初始版本", appID)
+	log.Printf("为应用 %s 创建默认初始版本", appID)
 
 	// 应用目录
 	appDir := models.GetAppUploadDir(UploadDir, appID)
@@ -258,14 +356,20 @@ func createInitialVersionForApp(appID string) {
 		return
 	}
 
-	// 创建空的更新文件
+	// 检查是否已存在版本文件
 	zipPath := filepath.Join(versionDir, "update.zip")
-	emptyFile, err := os.Create(zipPath)
-	if err != nil {
-		log.Printf("创建初始版本文件失败: %v", err)
-		return
+	if _, err := os.Stat(zipPath); !os.IsNotExist(err) {
+		log.Printf("版本文件已存在，跳过创建空文件")
+	} else {
+		// 创建空的更新文件
+		emptyFile, err := os.Create(zipPath)
+		if err != nil {
+			log.Printf("创建初始版本文件失败: %v", err)
+			return
+		}
+		emptyFile.Close()
+		log.Printf("已创建空的初始版本文件")
 	}
-	emptyFile.Close()
 
 	// 获取文件信息
 	fileInfo, err := os.Stat(zipPath)
