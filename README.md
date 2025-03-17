@@ -64,6 +64,76 @@ go build -o hotupdate .
 - `-log`: 日志文件存放目录（默认：./logs）
 - `-config`: 配置文件路径（默认：./config.json）
 
+### 使用Docker运行
+
+项目提供了Docker支持，可以通过Docker容器快速部署和运行热更新服务器。
+
+#### 构建Docker镜像
+
+在项目根目录下运行以下命令构建Docker镜像：
+
+```bash
+docker build -t hotupdate-server:latest .
+```
+
+#### 运行Docker容器
+
+运行以下命令启动Docker容器：
+
+```bash
+docker run -d \
+  --name hotupdate \
+  -p 9090:9090 \
+  -v /path/to/uploads:/app/uploads \
+  -v /path/to/logs:/app/logs \
+  hotupdate-server:latest
+```
+
+#### 容器环境变量
+
+您可以通过环境变量自定义容器配置：
+
+```bash
+docker run -d \
+  --name hotupdate \
+  -p 8888:9090 \
+  -e PORT=9090 \
+  -e HOST=0.0.0.0 \
+  -e DEBUG_MODE=true \
+  -v /path/to/uploads:/app/uploads \
+  -v /path/to/logs:/app/logs \
+  hotupdate-server:latest
+```
+
+#### 使用Docker Compose
+
+创建`docker-compose.yml`文件：
+
+```yaml
+version: '3'
+
+services:
+  hotupdate:
+    build: .
+    container_name: hotupdate
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    environment:
+      - PORT=9090
+      - HOST=0.0.0.0
+      - DEBUG_MODE=true
+    restart: unless-stopped
+```
+
+运行以下命令启动服务：
+
+```bash
+docker-compose up -d
+```
+
 ## 使用指南
 
 ### 管理员

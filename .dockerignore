@@ -1,0 +1,28 @@
+# Git 相关
+.git
+.gitignore
+
+# 项目日志和上传的文件，避免复制本地数据
+logs/
+uploads/
+
+# 编译文件
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE 配置
+.idea/
+.vscode/
+
+# Go 相关
+vendor/
+
+# 其他
+README.md
+LICENSE
+*.md 

@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  hotupdate:
+    build: .
+    container_name: hotupdate
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    environment:
+      - PORT=9090
+      - HOST=0.0.0.0
+      - DEBUG_MODE=true
+    restart: unless-stopped 

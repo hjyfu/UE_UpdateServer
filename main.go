@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hotupdate/app/controllers"
 	"io"
 	"log"
 	"net/http"
@@ -14,8 +15,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-
-	"hotupdate/app/controllers"
 )
 
 // Config 服务器配置
@@ -46,16 +45,16 @@ type Config struct {
 }
 
 var (
-	port       = flag.String("port", "9090", "服务器端口")
-	uploadDir  = flag.String("upload", "./uploads", "上传文件存放目录")
-	logDir     = flag.String("log", "./logs", "日志文件存放目录")
-	configFile = flag.String("config", "./config.json", "配置文件路径")
-	debug      = flag.Bool("debug", false, "调试模式")
+	port       int
+	uploadDir  string
+	logDir     string
+	configPath string
+	debug      bool
 	config     Config
 )
 
 func main() {
-	flag.Parse()
+	initConfig()
 
 	// 初始化日志
 	initLogger()
@@ -63,17 +62,12 @@ func main() {
 	log.Println("正在启动多项目热更新服务器...")
 	startTime := time.Now()
 
-	// 加载配置文件
-	if err := loadConfig(); err != nil {
-		log.Printf("警告: 无法加载配置文件: %v, 将使用命令行参数", err)
-	}
-
 	// 确保目录存在
-	ensureDir(*uploadDir)
-	ensureDir(*logDir)
+	ensureDir(uploadDir)
+	ensureDir(logDir)
 
 	// 设置Gin模式
-	if *debug || config.Server.DebugMode {
+	if debug || config.Server.DebugMode {
 		gin.SetMode(gin.DebugMode)
 		log.Println("以调试模式运行")
 	} else {
@@ -85,10 +79,7 @@ func main() {
 	r := setupRouter()
 
 	// 获取实际要使用的端口
-	portToUse := *port
-	if config.Server.Port > 0 {
-		portToUse = strconv.Itoa(config.Server.Port)
-	}
+	portToUse := strconv.Itoa(port)
 
 	// 启动前准备所需时间
 	log.Printf("服务器准备完成，耗时 %v", time.Since(startTime))
@@ -105,15 +96,63 @@ func main() {
 	}
 }
 
+// 初始化配置
+func initConfig() {
+	// 读取命令行参数
+	flag.StringVar(&configPath, "config", "./config.json", "配置文件路径")
+	flag.IntVar(&port, "port", 9090, "服务器端口")
+	flag.StringVar(&uploadDir, "upload", "./uploads", "上传目录")
+	flag.StringVar(&logDir, "log", "./logs", "日志目录")
+	flag.BoolVar(&debug, "debug", false, "调试模式")
+	flag.Parse()
+
+	// 尝试从环境变量读取配置，环境变量优先级高于命令行参数
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			port = p
+		}
+	}
+
+	if envUploadDir := os.Getenv("UPLOAD_DIR"); envUploadDir != "" {
+		uploadDir = envUploadDir
+	}
+
+	if envLogDir := os.Getenv("LOG_DIR"); envLogDir != "" {
+		logDir = envLogDir
+	}
+
+	if envConfigPath := os.Getenv("CONFIG_PATH"); envConfigPath != "" {
+		configPath = envConfigPath
+	}
+
+	if envDebug := os.Getenv("DEBUG_MODE"); envDebug != "" {
+		debug = (envDebug == "true" || envDebug == "1")
+	}
+
+	// 加载配置文件
+	if err := loadConfig(); err != nil {
+		log.Printf("无法加载配置文件: %v, 使用默认配置", err)
+	}
+
+	// 环境变量可以覆盖配置文件中的设置
+	if envHost := os.Getenv("HOST"); envHost != "" {
+		config.Server.Host = envHost
+	}
+
+	if envDebugMode := os.Getenv("DEBUG_MODE"); envDebugMode != "" {
+		config.Server.DebugMode = (envDebugMode == "true" || envDebugMode == "1")
+	}
+}
+
 // 加载配置文件
 func loadConfig() error {
 	// 检查配置文件是否存在
-	if _, err := os.Stat(*configFile); os.IsNotExist(err) {
-		return fmt.Errorf("配置文件不存在: %s", *configFile)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return fmt.Errorf("配置文件不存在: %s", configPath)
 	}
 
 	// 读取配置文件
-	data, err := os.ReadFile(*configFile)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
 	}
@@ -123,16 +162,16 @@ func loadConfig() error {
 		return err
 	}
 
-	log.Printf("成功加载配置文件: %s", *configFile)
+	log.Printf("成功加载配置文件: %s", configPath)
 
 	// 如果配置文件中设置了这些值，则覆盖命令行参数
 	if config.Storage.UploadDir != "" {
-		*uploadDir = config.Storage.UploadDir
-		log.Printf("使用配置文件中的上传目录: %s", *uploadDir)
+		uploadDir = config.Storage.UploadDir
+		log.Printf("使用配置文件中的上传目录: %s", uploadDir)
 	}
 	if config.Storage.LogDir != "" {
-		*logDir = config.Storage.LogDir
-		log.Printf("使用配置文件中的日志目录: %s", *logDir)
+		logDir = config.Storage.LogDir
+		log.Printf("使用配置文件中的日志目录: %s", logDir)
 	}
 
 	// 预先创建配置文件中指定的应用
@@ -166,8 +205,8 @@ func ensureDir(dir string) {
 // 初始化日志系统
 func initLogger() {
 	// 确保日志目录存在
-	if _, err := os.Stat(*logDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(*logDir, 0755); err != nil {
+	if _, err := os.Stat(logDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(logDir, 0755); err != nil {
 			// 如果无法创建日志目录，继续使用标准输出
 			log.Printf("无法创建日志目录: %v, 将使用标准输出", err)
 			return
@@ -176,7 +215,7 @@ func initLogger() {
 
 	// 生成带时间戳的日志文件名
 	timestamp := time.Now().Format("2006-01-02")
-	logFile := filepath.Join(*logDir, fmt.Sprintf("server_%s.log", timestamp))
+	logFile := filepath.Join(logDir, fmt.Sprintf("server_%s.log", timestamp))
 
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -252,7 +291,7 @@ func setupRouter() *gin.Engine {
 	})
 
 	// 设置版本控制器
-	controllers.SetupVersionController(r, *uploadDir)
+	controllers.SetupVersionController(r, uploadDir)
 
 	return r
 }
