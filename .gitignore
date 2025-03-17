@@ -1,0 +1,33 @@
+# 编译生成的二进制文件
+/hotupdate
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# 测试二进制文件
+*.test
+
+# 输出文件
+*.out
+
+# 依赖目录
+/vendor/
+
+# 日志文件
+/logs/
+
+# 上传的文件
+/uploads/
+
+# IDE和编辑器文件
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 操作系统文件
+.DS_Store
+Thumbs.db 
